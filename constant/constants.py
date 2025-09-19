@@ -20,8 +20,8 @@ HF_MODELS = {
     "6": "Qwen/Qwen2.5-72B-Instruct",
     "7": "mistralai/Ministral-8B-Instruct-2410",
     "8": "mistralai/Mixtral-8x7B-Instruct-v0.1",
-    "9": "google/gemma-3-4b-it",
-    "10": "google/gemma-3-27b-it",
+    "9": "Qwen/Qwen3-30B-A3B-Instruct-2507",
+    "10": "Qwen/Qwen3-4B-Instruct-2507",
 }
 OPENAI_MODELS = {"11": "gpt-3.5-turbo", "12": "gpt-4o", "13": "gpt-4.1"}
 DEEPSEEK_MODELS = {

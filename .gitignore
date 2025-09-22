@@ -13,4 +13,3 @@ __pycache__
 *.pyc
 .env
 raw_csv
-qa_pair

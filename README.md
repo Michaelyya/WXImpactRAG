@@ -59,7 +59,7 @@ WeatherArchive-Bench/
 
 ## 📦 Datasets
 
-The benchmark is built on 335 expert-curated queries about extreme weather events drawn from historical newspaper archives. Each query has a single gold-standard passage and expert-annotated vulnerability/resilience labels.
+The benchmark is built on 335 expert-curated queries about extreme weather events drawn from historical newspaper archives (19th--early 20th century). Each query has a single gold-standard passage and expert-annotated vulnerability/resilience labels.
 
 **For detailed file schemas, task-to-dataset mappings, and example loading scripts, see [`data/README.md`](data/README.md).**
 
@@ -72,6 +72,8 @@ The benchmark is built on 335 expert-curated queries about extreme weather event
 | Full Corpus | `WeatherArchive_Retrieval/qa_pair/concatenated_chunks.csv` | 1M+ archival news segments (Git LFS) |
 
 The datasets are also available on [HuggingFace](https://huggingface.co/datasets/WxChat/WeatherArchiveBench).
+
+> **Note on source data:** The passages originate from digitized historical newspaper collections and have been processed through OCR. Due to intellectual property restrictions, the raw scanned newspaper pages and original OCR output cannot be redistributed. The CSV files in this repository contain **post-OCR-corrected text** that has been cleaned for retrieval and language model evaluation. Source provenance (city, date, publication context) is embedded within the passage text itself. See [`data/README.md`](data/README.md) for details.
 
 ## 🔬 Experiments and Evaluation
 

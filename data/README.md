@@ -2,6 +2,33 @@
 
 This directory contains the core datasets for the two benchmark tasks in WeatherArchive-Bench: **WeatherArchive-Retrieval** and **WeatherArchive-Assessment**. All files are in CSV format.
 
+## Data Provenance and Source Corpus
+
+The passages in this benchmark originate from **historical newspaper archives** covering extreme weather events (storms, blizzards, floods, droughts, heatwaves, cold snaps, etc.) across North America, the United Kingdom, and other regions, primarily from the 19th and early 20th centuries. The original articles were obtained from digitized newspaper collections and processed through Optical Character Recognition (OCR).
+
+**Due to intellectual property restrictions, the raw scanned newspaper pages and original OCR output cannot be redistributed in this repository.** What we provide instead are the **post-OCR-corrected text passages** included directly in the CSV files (e.g., `QACorrect_Passages.csv`, `QACandidate_Pool.csv`, and `concatenated_chunks.csv`). These passages have been cleaned and corrected from the raw OCR output to improve text quality for retrieval and language model evaluation.
+
+### Source Identification
+
+Each passage in the corpus corresponds to a segment from a historical newspaper article. While the CSV files do not carry per-row source URLs or newspaper identifiers (the corpus was assembled from bulk digitized collections), the passages themselves contain embedded provenance cues -- city names, datelines, and publication context -- that identify the originating newspaper and approximate date. For example:
+
+> *"Eau Claire, Wis, March 30 -- A heavy rainstorm, which set in early Saturday morning..."*
+
+> *"London, February 18 -- The weather continues very unsettled over the whole of the United Kingdom..."*
+
+The full document corpus (1M+ passages) is available as `concatenated_chunks.csv` via [Google Drive](https://drive.google.com/file/d/1sBzfsSvcvp6yuEjdsail4fcBmHKqPm5h/view?usp=sharing) or the [HuggingFace dataset](https://huggingface.co/datasets/WxChat/WeatherArchiveBench). The corpus covers the following weather event categories, each drawn from English-language newspaper archives:
+
+| Category | Description |
+|----------|-------------|
+| Blizzard | Blizzard and heavy snow events |
+| Cold | Extreme cold and frost events |
+| Heat | Heatwaves and extreme heat events |
+| Storm | Storms, hurricanes, cyclones, and gales |
+| Flood | Flooding and tidal wave events |
+| Drought | Drought and dry weather events |
+
+For further details on the data collection methodology and source archives, please refer to the [SIGIR 2026 paper](https://arxiv.org/html/2510.05336).
+
 ## Dataset Overview
 
 | File | Rows | Used By | Description |

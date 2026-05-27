@@ -13,3 +13,7 @@ __pycache__
 *.pyc
 .env
 raw_csv
+
+# Pyserini-generated artifacts (large; rebuilt on demand)
+WeatherArchive_Retrieval_pyserini/collections/
+WeatherArchive_Retrieval_pyserini/indexes/

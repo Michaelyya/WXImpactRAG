@@ -47,6 +47,12 @@ WeatherArchive-Bench/
 │   ├── utils.py                          # Evaluation utilities
 │   └── README.md                         # Retrieval framework documentation
 │
+├── 📁 WeatherArchive_Retrieval_pyserini/ # Pyserini reimplementation of Retrieval
+│   ├── retriever_eval_1.py … _7.py       # Same 7 retrievers, routed through Pyserini
+│   ├── pyserini_utils.py                 # Index/encode/search helpers (Lucene + FAISS + impact)
+│   ├── overall.py / utils.py             # Same metrics + parity shim
+│   └── README.md                         # Pyserini module documentation
+│
 └── 📁 WeatherArchive_Assessment/         # Climate impact assessment framework
     └── src/
         ├── climate_eval.py               # IPCC vulnerability classification
@@ -168,6 +174,15 @@ python -m WeatherArchive_Retrieval.retriever_eval_7  # Gemini models (requires G
 # Aggregate metrics across all models
 python -m WeatherArchive_Retrieval.overall
 ```
+
+**Pyserini variant.** `WeatherArchive_Retrieval_pyserini/` reproduces the same seven retrievers and metrics through Pyserini's Lucene / FAISS / impact searchers, with identical inputs and `raw_*.csv` outputs. BM25 is hybrid (Pyserini Lucene Okapi BM25, with `rank_bm25` kept for the BM25Plus/BM25L variants Lucene can't reproduce), and SPLADE/uniCOIL use Pyserini's learned-sparse impact pipeline. It additionally needs a JVM (JDK 11+) for Lucene. Run the same way and aggregate with `overall.py`:
+
+```bash
+python -m WeatherArchive_Retrieval_pyserini.retriever_eval_1   # … through _7
+python -m WeatherArchive_Retrieval_pyserini.overall
+```
+
+See [`WeatherArchive_Retrieval_pyserini/README.md`](WeatherArchive_Retrieval_pyserini/README.md) for the full model→component mapping.
 
 ### Running WeatherArchive-Assessment
 

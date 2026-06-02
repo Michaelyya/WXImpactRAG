@@ -118,8 +118,11 @@ def prepare_collection(
     """
     Write ``df_chunks`` to a Pyserini ``JsonCollection`` directory.
 
-    Each line is ``{"id": <id>, "contents": <Text>}``.  The directory is cached
-    and reused; delete it to force a rebuild.  Returns the collection directory.
+    Each line is ``{"id": <id>, "contents": <Text>, "text": <Text>}``. ``contents``
+    feeds the Anserini/Lucene BM25 path; ``text`` is what ``pyserini.encode`` reads
+    (its CLI hardcodes a ``text`` field and would otherwise split ``contents`` on
+    newlines). The directory is cached and reused; delete it to force a rebuild.
+    Returns the collection directory.
     """
     collection_dir = os.path.join(COLLECTION_BASE, name)
     jsonl_path = os.path.join(collection_dir, "docs.jsonl")
@@ -140,7 +143,11 @@ def prepare_collection(
             zip(ids, texts), total=len(ids), desc="Writing JSONL"
         ):
             fout.write(
-                json.dumps({"id": doc_id, "contents": text}, ensure_ascii=False) + "\n"
+                json.dumps(
+                    {"id": doc_id, "contents": text, "text": text},
+                    ensure_ascii=False,
+                )
+                + "\n"
             )
     return collection_dir
 
@@ -148,10 +155,64 @@ def prepare_collection(
 # --------------------------------------------------------------------------- #
 # Subprocess wrapper
 # --------------------------------------------------------------------------- #
+def _ensure_openai_import_safe() -> None:
+    """
+    ``pyserini.encode`` (pulled in transitively by ``pyserini.search.*`` and by
+    the ``pyserini.encode`` CLI) builds an OpenAI client at *import* time, and
+    openai>=2 raises ``OpenAIError`` on an empty key. Set a harmless placeholder
+    when no key is configured so the non-OpenAI retrievers (BM25 / SPLADE /
+    dense / ANCE / uniCOIL) can import without credentials.
+
+    This uses ``setdefault`` and is only called from inside the retrieval
+    functions, i.e. *after* OpenAI runs (retriever_eval_5) have loaded their real
+    key via dotenv, so it never clobbers a genuine key.
+    """
+    os.environ.setdefault("OPENAI_API_KEY", "pyserini-import-placeholder")
+
+
 def _run(cmd: List[str]) -> None:
     """Run a Pyserini CLI command, streaming output; raise on non-zero exit."""
+    _ensure_openai_import_safe()  # the encode CLI imports pyserini.encode -> openai
     print("[cmd] " + " ".join(cmd))
     subprocess.run(cmd, check=True)
+
+
+_ENCODER_CLASS_CHOICES: Optional[set] = None
+
+
+def _cli_accepts_encoder_class(encoder_class: str) -> bool:
+    """
+    Whether the installed ``pyserini.encode`` CLI accepts ``--encoder-class
+    <encoder_class>``.
+
+    Pyserini periodically prunes its ``--encoder-class`` whitelist (e.g.
+    'unicoil' was dropped in recent builds) while keeping the underlying encoder
+    class. We probe the CLI help once, cache the parsed choices, and let callers
+    fall back to name-based inference when the class is no longer whitelisted.
+    """
+    global _ENCODER_CLASS_CHOICES
+    if _ENCODER_CLASS_CHOICES is None:
+        import re
+
+        # The probe subprocess imports pyserini.encode (-> OpenAI client) before
+        # argparse prints help, so it needs the placeholder key too; otherwise the
+        # help never prints and we'd wrongly assume every class is accepted.
+        _ensure_openai_import_safe()
+        try:
+            out = subprocess.run(
+                [sys.executable, "-m", "pyserini.encode", "encoder", "-h"],
+                capture_output=True,
+                text=True,
+            )
+            text = (out.stdout or "") + (out.stderr or "")
+            m = re.search(r"--encoder-class\s*\{([^}]*)\}", text)
+            _ENCODER_CLASS_CHOICES = (
+                {c.strip() for c in m.group(1).split(",")} if m else set()
+            )
+        except Exception:
+            _ENCODER_CLASS_CHOICES = set()
+    # If the probe yielded nothing, assume acceptance and let the CLI complain.
+    return not _ENCODER_CLASS_CHOICES or encoder_class in _ENCODER_CLASS_CHOICES
 
 
 # --------------------------------------------------------------------------- #
@@ -201,7 +262,7 @@ def encode_corpus_to_faiss(
     device: Optional[str] = None,
     batch: int = 64,
     fp16: bool = True,
-    fields: str = "contents",
+    fields: str = "text",
 ) -> str:
     """
     Encode the corpus into a Pyserini FAISS index with ``pyserini.encode``.
@@ -239,7 +300,7 @@ def encode_corpus_to_impact(
     encoder_class: str,
     device: Optional[str] = None,
     batch: int = 32,
-    fields: str = "contents",
+    fields: str = "text",
     weight_range: Optional[int] = None,
     quant_range: Optional[int] = None,
 ) -> str:
@@ -254,11 +315,21 @@ def encode_corpus_to_impact(
 
     os.makedirs(vectors_dir, exist_ok=True)
     device = device or pick_device()
+    # Newer Pyserini CLIs dropped learned-sparse classes (e.g. 'unicoil') from
+    # the --encoder-class whitelist even though the encoder classes still exist.
+    # Only pass --encoder-class when the installed CLI accepts it; otherwise let
+    # pyserini.encode infer the class from the encoder name (which contains the
+    # keyword, e.g. "...unicoil..." / "...splade...").
+    encoder_class_args = (
+        ["--encoder-class", encoder_class]
+        if encoder_class and _cli_accepts_encoder_class(encoder_class)
+        else []
+    )
     cmd = [
         sys.executable, "-m", "pyserini.encode",
         "input", "--corpus", corpus_jsonl, "--fields", fields,
         "output", "--embeddings", vectors_dir,
-        "encoder", "--encoder", encoder, "--encoder-class", encoder_class,
+        "encoder", "--encoder", encoder, *encoder_class_args,
         "--fields", fields, "--batch", str(batch), "--device", device,
     ]
     if weight_range is not None:
@@ -375,7 +446,14 @@ def make_auto_query_encoder(
     l2_norm: bool = True,
 ):
     """Generic HF dense query encoder (SBERT / Qwen / Arctic / Granite)."""
-    from pyserini.search.faiss import AutoQueryEncoder
+    # Pyserini moved the query encoders out of pyserini.search.faiss into
+    # pyserini.encode in newer releases; try the current location first and
+    # fall back to the legacy one so this works across versions.
+    _ensure_openai_import_safe()
+    try:
+        from pyserini.encode import AutoQueryEncoder
+    except ImportError:
+        from pyserini.search.faiss import AutoQueryEncoder
 
     return AutoQueryEncoder(
         encoder_dir=model,
@@ -387,7 +465,13 @@ def make_auto_query_encoder(
 
 def make_ance_query_encoder(model: str, device: Optional[str] = None):
     """Native ANCE query encoder."""
-    from pyserini.search.faiss import AnceQueryEncoder
+    # See make_auto_query_encoder: encoders live in pyserini.encode in newer
+    # releases, pyserini.search.faiss in older ones.
+    _ensure_openai_import_safe()
+    try:
+        from pyserini.encode import AnceQueryEncoder
+    except ImportError:
+        from pyserini.search.faiss import AnceQueryEncoder
 
     return AnceQueryEncoder(encoder_dir=model, device=device or pick_device())
 
@@ -400,6 +484,7 @@ def make_impact_query_encoder(kind: str, model: str, device: Optional[str] = Non
     across Pyserini versions and finally falls back to handing the raw model
     name to LuceneImpactSearcher (which can build the encoder itself).
     """
+    _ensure_openai_import_safe()
     device = device or pick_device()
     attempts = []
     if kind == "splade":
@@ -454,6 +539,7 @@ def run_bm25_pyserini(
     Lucene implements Okapi BM25; (k1, b) default to (1.5, 0.75) to match
     rank_bm25's BM25Okapi defaults used by the original package.
     """
+    _ensure_openai_import_safe()
     from pyserini.search.lucene import LuceneSearcher
 
     collection_dir = prepare_collection(df_chunks)
@@ -479,6 +565,7 @@ def run_dense_faiss(
     top_k: int = TOP_K_DEFAULT,
 ) -> Dict[str, List[str]]:
     """Encode the corpus into a Pyserini FAISS index and search it."""
+    _ensure_openai_import_safe()
     from pyserini.search.faiss import FaissSearcher
 
     device = device or pick_device()
@@ -512,6 +599,7 @@ def run_impact_lucene(
     top_k: int = TOP_K_DEFAULT,
 ) -> Dict[str, List[str]]:
     """Encode the corpus into impact vectors, build a Lucene impact index, search."""
+    _ensure_openai_import_safe()
     from pyserini.search.lucene import LuceneImpactSearcher
 
     device = device or pick_device()

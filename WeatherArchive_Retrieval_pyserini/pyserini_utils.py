@@ -177,7 +177,43 @@ def _run(cmd: List[str]) -> None:
     subprocess.run(cmd, check=True)
 
 
+_ENCODE_ENCODER_HELP: Optional[str] = None
 _ENCODER_CLASS_CHOICES: Optional[set] = None
+
+
+def _encode_encoder_help() -> str:
+    """
+    Capture (and cache) the ``pyserini.encode encoder -h`` help text once.
+
+    The probe subprocess imports pyserini.encode (-> OpenAI client) before
+    argparse prints help, so it needs the placeholder key too; otherwise the
+    help never prints and we'd wrongly assume every flag is accepted.
+    """
+    global _ENCODE_ENCODER_HELP
+    if _ENCODE_ENCODER_HELP is None:
+        _ensure_openai_import_safe()
+        try:
+            out = subprocess.run(
+                [sys.executable, "-m", "pyserini.encode", "encoder", "-h"],
+                capture_output=True,
+                text=True,
+            )
+            _ENCODE_ENCODER_HELP = (out.stdout or "") + (out.stderr or "")
+        except Exception:
+            _ENCODE_ENCODER_HELP = ""
+    return _ENCODE_ENCODER_HELP
+
+
+def _cli_accepts_flag(flag: str) -> bool:
+    """
+    Whether the installed ``pyserini.encode`` CLI advertises ``flag`` (e.g.
+    ``--weight-range``).  Recent Pyserini builds dropped the SPLADE/uniCOIL
+    quantisation flags; passing them then aborts encode with exit status 2.
+    If the help probe yielded nothing, assume acceptance and let the CLI
+    complain rather than silently dropping a valid flag.
+    """
+    help_text = _encode_encoder_help()
+    return (not help_text) or (flag in help_text)
 
 
 def _cli_accepts_encoder_class(encoder_class: str) -> bool:
@@ -194,23 +230,10 @@ def _cli_accepts_encoder_class(encoder_class: str) -> bool:
     if _ENCODER_CLASS_CHOICES is None:
         import re
 
-        # The probe subprocess imports pyserini.encode (-> OpenAI client) before
-        # argparse prints help, so it needs the placeholder key too; otherwise the
-        # help never prints and we'd wrongly assume every class is accepted.
-        _ensure_openai_import_safe()
-        try:
-            out = subprocess.run(
-                [sys.executable, "-m", "pyserini.encode", "encoder", "-h"],
-                capture_output=True,
-                text=True,
-            )
-            text = (out.stdout or "") + (out.stderr or "")
-            m = re.search(r"--encoder-class\s*\{([^}]*)\}", text)
-            _ENCODER_CLASS_CHOICES = (
-                {c.strip() for c in m.group(1).split(",")} if m else set()
-            )
-        except Exception:
-            _ENCODER_CLASS_CHOICES = set()
+        m = re.search(r"--encoder-class\s*\{([^}]*)\}", _encode_encoder_help())
+        _ENCODER_CLASS_CHOICES = (
+            {c.strip() for c in m.group(1).split(",")} if m else set()
+        )
     # If the probe yielded nothing, assume acceptance and let the CLI complain.
     return not _ENCODER_CLASS_CHOICES or encoder_class in _ENCODER_CLASS_CHOICES
 
@@ -332,9 +355,12 @@ def encode_corpus_to_impact(
         "encoder", "--encoder", encoder, *encoder_class_args,
         "--fields", fields, "--batch", str(batch), "--device", device,
     ]
-    if weight_range is not None:
+    # Newer Pyserini builds dropped the learned-sparse quantisation flags; only
+    # pass them when the installed CLI still advertises them, otherwise encode
+    # aborts with exit status 2 (the encoder falls back to its own defaults).
+    if weight_range is not None and _cli_accepts_flag("--weight-range"):
         cmd += ["--weight-range", str(weight_range)]
-    if quant_range is not None:
+    if quant_range is not None and _cli_accepts_flag("--quant-range"):
         cmd += ["--quant-range", str(quant_range)]
     _run(cmd)
     return vectors_dir
